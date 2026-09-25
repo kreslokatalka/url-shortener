@@ -9,9 +9,9 @@ import (
 	"gopkg.in/go-playground/assert.v1"
 
 	"url-shortener/internal/http-server/handlers/url/redirect"
-	"url-shortener/internal/http-server/handlers/url/redirect/mocks"
 	"url-shortener/internal/lib/api"
 	"url-shortener/internal/lib/logger/handlers/slogdiscard"
+	"url-shortener/internal/service/redirect/mocks"
 )
 
 func TestSaveHandler(t *testing.T) {
@@ -48,7 +48,7 @@ func TestSaveHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.url, redirectedToURL)
-			urlGetterMock.AssertExpectations(t) // Проверка вызова мока
+			urlGetterMock.AssertExpectations(t)
 		})
 	}
 }

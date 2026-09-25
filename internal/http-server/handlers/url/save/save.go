@@ -55,9 +55,8 @@ func New(log *slog.Logger, urlSaver save.URLSaver, aliasLength int) http.Handler
 			render.JSON(w, r, resp.ValidationError(validateErr))
 			return
 		}
-		/////////////////////////////////////////
 		alias, err := svc.Save(req.URL, req.Alias, middleware.GetReqID(r.Context()))
-		/////////////////////////////////////////
+
 		if errors.Is(err, save.ErrParseAliasLength) {
 			log.Error("failed to parse ALIAS_LENGTH", sl.Err(err))
 			render.Status(r, 500)
@@ -65,10 +64,10 @@ func New(log *slog.Logger, urlSaver save.URLSaver, aliasLength int) http.Handler
 			return
 		}
 
-		if errors.Is(err, storage.ErrURLExists) {
-			log.Info("url already exists", slog.String("url", req.URL))
-			render.Status(r, 400)
-			render.JSON(w, r, resp.Error("url already exists"))
+		if errors.Is(err, storage.ErrAliasExists) {
+			log.Info("alias already exists", slog.String("alias", req.Alias))
+			render.Status(r, 409)
+			render.JSON(w, r, resp.Error("alias already exists"))
 			return
 		}
 

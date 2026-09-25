@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: shortener-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  shortener:
+
+    build:
+      context: .
+      dockerfile: DockerFile
+    container_name: shortener-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ADDRESS: 0.0.0.0:8082
+      DATABASE_URL: ${DATABASE_URL}
+      CONFIG_PATH: ${CONFIG_PATH}
+      ALIAS_LENGTH: ${ALIAS_LENGTH}
+      AUTH_USER: ${AUTH_USER}
+      AUTH_PASSWORD: ${AUTH_PASSWORD}
+    volumes:
+      - ./config:/app/config:ro
+    ports:
+      - "8082:8082"
+    restart: unless-stopped
+
+volumes: 
+  postgres-data:
+

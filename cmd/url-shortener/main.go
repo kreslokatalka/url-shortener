@@ -7,7 +7,9 @@ import (
 	"url-shortener/internal/config"
 	"url-shortener/internal/lib/logger/handlers/slogpretty"
 	"url-shortener/internal/lib/logger/sl"
-	"url-shortener/internal/storage/sqlite"
+
+	//storage "url-shortener/internal/storage/sqlite"
+	storage "url-shortener/internal/storage/postgres"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -32,7 +34,7 @@ func main() {
 	log.Debug("debug messages are enabled")
 	log.Error("error messages are enabled")
 
-	storage, err := sqlite.New(cfg.StoragePath)
+	storage, err := storage.New(cfg.StoragePath)
 	if err != nil {
 		log.Error("failed to init storage", sl.Err(err))
 		os.Exit(1)
@@ -50,9 +52,13 @@ func main() {
 		r.Use(middleware.BasicAuth("url-shortener", map[string]string{
 			cfg.Auth.User: cfg.Auth.Password,
 		}))
-
 		r.Post("/", save.New(log, storage, cfg.AliasLength))
 		r.Delete("/{alias}", delete.New(log, storage))
+	})
+
+	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	router.Get("/{alias}", redirect.New(log, storage))

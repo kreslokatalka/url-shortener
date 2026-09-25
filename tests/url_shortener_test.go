@@ -22,12 +22,11 @@ const (
 )
 
 func getAuth(typeField string) string {
-	// Загружаем .env файл
+
 	if err := godotenv.Load("../.env"); err != nil {
 		panic("Error loading .env file: " + err.Error())
 	}
 
-	// Получаем credentials из переменных окружения
 	authUser := os.Getenv("AUTH_USER")
 	authPassword := os.Getenv("AUTH_PASSWORD")
 
@@ -61,7 +60,6 @@ func TestURLShortener_HappyPath(t *testing.T) {
 		ContainsKey("alias")
 }
 
-//nolint:funlen
 func TestURLShortener_SaveRedirectRemove(t *testing.T) {
 	testCases := []struct {
 		name       string
@@ -89,7 +87,6 @@ func TestURLShortener_SaveRedirectRemove(t *testing.T) {
 			alias:      "",
 			wantStatus: http.StatusOK,
 		},
-		// TODO: add more test cases
 	}
 
 	for _, tc := range testCases {
@@ -101,7 +98,6 @@ func TestURLShortener_SaveRedirectRemove(t *testing.T) {
 
 			e := httpexpect.Default(t, u.String())
 
-			// Save
 			resp := e.POST("/url").
 				WithJSON(save.Request{
 					URL:   tc.url,
@@ -129,10 +125,8 @@ func TestURLShortener_SaveRedirectRemove(t *testing.T) {
 				alias = resp.Value("alias").String().Raw()
 			}
 
-			// Redirect
 			testRedirect(t, alias, tc.url)
 
-			// Remove
 			reqDel := e.DELETE("/"+path.Join("url", alias)).
 				WithBasicAuth(getAuth("user"), getAuth("password")).
 				Expect().Status(http.StatusOK).

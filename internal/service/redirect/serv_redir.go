@@ -9,22 +9,19 @@ var (
 	ErrAliasEmpty = errors.New("Alias empty")
 )
 
-//go:generate go run github.com/vektra/mockery/v2@latest --dir . --name URLDeleter --output ./mocks
+//go:generate go run github.com/vektra/mockery/v2@latest --dir . --name URLGetter --output ./mocks
 type URLGetter interface {
 	GetURL(alias string) (string, error)
 }
 
-// Service содержит бизнес-логику удаления URL.
 type Service struct {
 	urlGetter URLGetter
 }
 
-// NewService создаёт новый Service для удаления URL.
 func NewService(urlGetter URLGetter) *Service {
 	return &Service{urlGetter: urlGetter}
 }
 
-// Delete удаляет URL по alias и возвращает количество удалённых записей.
 func (g *Service) Get(alias string) (string, error) {
 
 	if alias == "" {

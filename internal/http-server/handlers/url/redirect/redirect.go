@@ -35,12 +35,14 @@ func New(log *slog.Logger, urlGetter URLGetter) http.HandlerFunc {
 		url, err := svc.Get(alias)
 		if errors.Is(err, storage.ErrURLNotFound) {
 			log.Info("url not found", "alias", alias)
+			render.Status(r, 404)
 			render.JSON(w, r, resp.Error("internal error"))
 			return
 		}
 
 		if err != nil {
 			log.Error("failed to get url", "alias", alias)
+			render.Status(r, 400)
 			render.JSON(w, r, resp.Error("failed to get url"))
 			return
 		}

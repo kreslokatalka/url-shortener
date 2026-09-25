@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -13,7 +12,7 @@ import (
 
 type Config struct {
 	Env         string `yaml:"env" env-default:"local"`
-	StoragePath string `yaml:"storage_path" env-required:"true"`
+	StoragePath string `yaml:"storage_path" env:"STORAGE_PATH"`
 	AliasLength int    `yaml:"alias_length" env:"ALIAS_LENGTH" env-default:"5"`
 	HTTPServer  `yaml:"http_server"`
 	Auth        `yaml:"auth"`
@@ -25,14 +24,13 @@ type Auth struct {
 }
 
 type HTTPServer struct {
-	Address     string        `yaml:"address" env-default:"localhost:8080"`
+	Address     string        `yaml:"address" env:"ADDRESS" env-default:"localhost:8080"`
 	Timeout     time.Duration `yaml:"timeout" env-default:"4s"`
 	IdleTimeout time.Duration `yaml:"idle_timeout" env-default:"60s"`
 }
 
 func MustLoad() *Config {
 	err := godotenv.Load()
-	fmt.Println(err)
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
@@ -52,7 +50,6 @@ func MustLoad() *Config {
 		log.Fatalf("cannot read config: %s", err)
 	}
 
-	// 2. Явная загрузка из переменных окружения (может перезаписать значения из YAML)
 	if aliasLength := os.Getenv("ALIAS_LENGTH"); aliasLength != "" {
 		length, err := strconv.Atoi(aliasLength)
 		if err != nil {
@@ -62,7 +59,6 @@ func MustLoad() *Config {
 		log.Println("Using ALIAS_LENGTH from environment")
 	}
 
-	// 3. Явная загрузка из переменных окружения (может перезаписать значения из YAML)
 	if user := os.Getenv("AUTH_USER"); user != "" {
 		cfg.Auth.User = user
 		log.Println("Using AUTH_USER from environment")
@@ -72,7 +68,10 @@ func MustLoad() *Config {
 		cfg.Auth.Password = password
 		log.Println("Using AUTH_PASSWORD from environment")
 	}
-
+	if storagePath := os.Getenv("DATABASE_URL"); storagePath != "" {
+		cfg.StoragePath = storagePath
+		log.Println("Using STORAGE_PATH from environment")
+	}
 	if cfg.Auth.User == "" || cfg.Auth.Password == "" {
 		log.Fatal("Username and Password is empty")
 	}

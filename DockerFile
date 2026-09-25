@@ -1,0 +1,61 @@
+# =============================================================================
+# Stage 1: builder
+# =============================================================================
+FROM golang:1.25-alpine AS builder
+
+# ca-certificates нужны, если приложение будет ходить наружу по HTTPS.
+RUN apk add --no-cache ca-certificates
+
+WORKDIR /src
+
+# Сначала копируем только файлы зависимостей — так слой с загрузкой модулей
+# кэшируется и не пересобирается при изменении исходников.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Копируем исходники и собираем статический бинарник.
+COPY . .
+
+# CGO не нужен: используется чистый pgx (PostgreSQL) без sqlite-драйвера.
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /out/url-shortener \
+    ./cmd/url-shortener
+
+# =============================================================================
+# Stage 2: runtime
+# =============================================================================
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata wget \
+    && addgroup -S app \
+    && adduser -S -G app app
+
+WORKDIR /app
+
+# Бинарник приложения.
+COPY --from=builder /out/url-shortener /app/url-shortener
+
+# Конфигурация по умолчанию. При запуске каталог монтируется из docker-compose,
+# поэтому правки в config/local.yaml на хосте подхватываются автоматически.
+COPY --chown=app:app config /app/config
+
+# Каталог для локального хранилища (используется sqlite-реализацией storage).
+# Пустой .env нужен, потому что config.MustLoad() вызывает godotenv.Load() и
+# падает, если файла нет. Реальные значения приходят из окружения контейнера
+# (docker-compose environment), поэтому секреты в образ не попадают.
+RUN mkdir -p /app/storage \
+    && touch /app/.env \
+    && chown -R app:app /app
+
+USER app
+
+# Порт совпадает с address в config/local.yaml и пробросом в docker-compose.
+EXPOSE 8082
+
+# Проверяем работоспособность по эндпоинту /ping.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8082/ping || exit 1
+
+ENTRYPOINT ["/app/url-shortener"]
+
