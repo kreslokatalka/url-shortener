@@ -35,7 +35,7 @@ func New(storagePath string) (*Storage, error) {
 	return &Storage{db: db}, nil
 }
 
-func (s *Storage) SaveURL(urlToSave string, alias string) (int64, error) {
+func (s *Storage) SaveURL(urlToSave, alias string) (int64, error) {
 	const fn = "storage.postgres.SaveURL"
 
 	var id int64
@@ -84,11 +84,11 @@ func (s *Storage) DeleteURL(alias string) (int64, error) {
 	return rowsAffected, nil
 }
 
-func (s *Storage) UpdateURL(alias string, newURL string) (int64, error) {
+func (s *Storage) UpdateURL(alias, NewAlias, newURL string) (int64, error) {
 	const fn = "storage.postgres.UpdateURL"
 
 	result, err := s.db.Exec(context.Background(),
-		"UPDATE url SET url = $1 WHERE alias = $2", newURL, alias)
+		"UPDATE url SET url = $1, SET alias = $2 WHERE alias = $3", newURL, NewAlias, alias)
 
 	if err != nil {
 		return 0, fmt.Errorf("%s: execute statement %w", fn, err)
