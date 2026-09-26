@@ -84,11 +84,11 @@ func (s *Storage) DeleteURL(alias string) (int64, error) {
 	return rowsAffected, nil
 }
 
-func (s *Storage) UpdateURL(alias, NewAlias, newURL string) (int64, error) {
+func (s *Storage) UpdateURL(newURL, NewAlias, alias string) (int64, error) {
 	const fn = "storage.postgres.UpdateURL"
 
 	result, err := s.db.Exec(context.Background(),
-		"UPDATE url SET url = $1, SET alias = $2 WHERE alias = $3", newURL, NewAlias, alias)
+		"UPDATE url SET url = $1, alias = $2 WHERE alias = $3", newURL, NewAlias, alias)
 
 	if err != nil {
 		return 0, fmt.Errorf("%s: execute statement %w", fn, err)

@@ -42,7 +42,7 @@ func New(log *slog.Logger, urlGetter URLGetter) http.HandlerFunc {
 
 		if err != nil {
 			log.Error("failed to get url", "alias", alias)
-			render.Status(r, 400)
+			render.Status(r, 500)
 			render.JSON(w, r, resp.Error("failed to get url"))
 			return
 		}

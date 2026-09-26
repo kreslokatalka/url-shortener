@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"url-shortener/internal/http-server/handlers/url/save"
+	"url-shortener/internal/http-server/handlers/url/update"
 	"url-shortener/internal/lib/api"
 	"url-shortener/internal/lib/random"
 )
@@ -41,12 +42,19 @@ func getAuth(typeField string) string {
 
 }
 
-func TestURLShortener_HappyPath(t *testing.T) {
+func newExpect(t *testing.T) *httpexpect.Expect {
+	t.Helper()
+
 	u := url.URL{
 		Scheme: "http",
 		Host:   host,
 	}
-	e := httpexpect.Default(t, u.String())
+
+	return httpexpect.Default(t, u.String())
+}
+
+func TestURLShortener_HappyPath(t *testing.T) {
+	e := newExpect(t)
 
 	e.POST("/url").
 		WithJSON(save.Request{
@@ -55,12 +63,12 @@ func TestURLShortener_HappyPath(t *testing.T) {
 		}).
 		WithBasicAuth(getAuth("user"), getAuth("password")).
 		Expect().
-		Status(200).
+		Status(http.StatusCreated).
 		JSON().Object().
 		ContainsKey("alias")
 }
 
-func TestURLShortener_SaveRedirectRemove(t *testing.T) {
+func TestURLShortener_SaveUpdateRedirectRemove(t *testing.T) {
 	testCases := []struct {
 		name       string
 		url        string
@@ -72,7 +80,7 @@ func TestURLShortener_SaveRedirectRemove(t *testing.T) {
 			name:       "Valid URL",
 			url:        gofakeit.URL(),
 			alias:      gofakeit.Word() + gofakeit.Word(),
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusCreated,
 		},
 		{
 			name:       "Invalid URL",
@@ -85,18 +93,15 @@ func TestURLShortener_SaveRedirectRemove(t *testing.T) {
 			name:       "Empty Alias",
 			url:        gofakeit.URL(),
 			alias:      "",
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusCreated,
 		},
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			u := url.URL{
-				Scheme: "http",
-				Host:   host,
-			}
+		tc := tc
 
-			e := httpexpect.Default(t, u.String())
+		t.Run(tc.name, func(t *testing.T) {
+			e := newExpect(t)
 
 			resp := e.POST("/url").
 				WithJSON(save.Request{
@@ -127,7 +132,14 @@ func TestURLShortener_SaveRedirectRemove(t *testing.T) {
 
 			testRedirect(t, alias, tc.url)
 
-			reqDel := e.DELETE("/"+path.Join("url", alias)).
+			newURL := gofakeit.URL()
+			newAlias := alias + "upd"
+
+			testUpdate(t, e, alias, newURL, newAlias)
+
+			testRedirect(t, newAlias, newURL)
+
+			reqDel := e.DELETE("/"+path.Join("url", newAlias)).
 				WithBasicAuth(getAuth("user"), getAuth("password")).
 				Expect().Status(http.StatusOK).
 				JSON().Object()
@@ -136,6 +148,22 @@ func TestURLShortener_SaveRedirectRemove(t *testing.T) {
 
 		})
 	}
+}
+
+func testUpdate(t *testing.T, e *httpexpect.Expect, alias, newURL, newAlias string) {
+	t.Helper()
+
+	resp := e.PATCH("/"+path.Join("url", alias)).
+		WithJSON(update.Request{
+			Alias:    alias,
+			NewURL:   newURL,
+			NewAlias: newAlias,
+		}).
+		WithBasicAuth(getAuth("user"), getAuth("password")).
+		Expect().Status(http.StatusOK).
+		JSON().Object()
+
+	resp.Value("countUpdated").Number().IsEqual(1)
 }
 
 func testRedirect(t *testing.T, alias string, urlToRedirect string) {

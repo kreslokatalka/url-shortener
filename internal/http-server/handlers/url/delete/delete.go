@@ -7,7 +7,6 @@ import (
 
 	resp "url-shortener/internal/lib/api/response"
 	del "url-shortener/internal/service/delete"
-	"url-shortener/internal/storage"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -41,15 +40,10 @@ func New(log *slog.Logger, urlDeleter del.URLDeleter) http.HandlerFunc {
 			render.JSON(w, r, resp.Error("alias empty"))
 			return
 		}
-		if errors.Is(err, storage.ErrURLNotFound) {
-			log.Info("url not found", "alias", alias)
-			render.Status(r, 404)
-			render.JSON(w, r, resp.Error("internal error"))
-			return
-		}
+
 		if err != nil {
 			log.Error("failed to get url", "alias", alias)
-			render.Status(r, 400)
+			render.Status(r, 500)
 			render.JSON(w, r, resp.Error("failed to get url"))
 			return
 		}

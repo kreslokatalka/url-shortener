@@ -17,218 +17,139 @@ import (
 	"url-shortener/internal/storage"
 )
 
-func TestSave_Success(t *testing.T) {
-	cases := []struct {
-		name        string
-		alias       string
-		url         string
-		aliasLength int
-	}{
-		{
-			name:        "Success",
-			alias:       "test_alias",
-			url:         "https://google.com",
-			aliasLength: 5,
-		},
-		{
-			name:        "Empty alias with generated alias",
-			alias:       "",
-			url:         "https://google.com",
-			aliasLength: 5,
-		},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			urlSaverMock := mocks.NewURLSaver(t)
-
-			urlSaverMock.On("SaveURL", tc.url, mock.AnythingOfType("string")).
-				Return(int64(1), nil).
-				Once()
-
-			handler := save.New(slogdiscard.NewDiscardLogger(), urlSaverMock, tc.aliasLength)
-
-			input := `{"url": "` + tc.url + `", "alias": "` + tc.alias + `"}`
-
-			req, err := http.NewRequest(http.MethodPost, "/save", bytes.NewReader([]byte(input)))
-			require.NoError(t, err)
-
-			rr := httptest.NewRecorder()
-			handler.ServeHTTP(rr, req)
-
-			require.Equal(t, http.StatusCreated, rr.Code)
-
-			var resp save.Response
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
-
-			require.Equal(t, "", resp.Error)
-			require.NotEmpty(t, resp.Alias)
-			if tc.alias != "" {
-				require.Equal(t, tc.alias, resp.Alias)
-			}
-
-			urlSaverMock.AssertExpectations(t)
-		})
-	}
+type saveTestCase struct {
+	name           string
+	input          string
+	aliasLength    int
+	mockError      error
+	wantSaveCalled bool
+	wantURL        string
+	wantStatus     int
+	wantError      string
+	wantAlias      string
+	wantAnyAlias   bool
 }
 
-func TestSave_BadRequest(t *testing.T) {
-	t.Run("Broken JSON", func(t *testing.T) {
-		t.Parallel()
+func runSaveTest(t *testing.T, tc saveTestCase) {
+	t.Helper()
 
-		brokenJSON := []struct {
-			name  string
-			input string
-		}{
-			{name: "Truncated JSON", input: `{"url": "https://google.com", "alias": "test_alias"`},
-			{name: "Not a JSON", input: `not a json at all`},
-			{name: "Wrong field type", input: `{"url": 123, "alias": []}`},
-			{name: "Empty body", input: ``},
-		}
+	urlSaverMock := mocks.NewURLSaver(t)
 
-		for _, tc := range brokenJSON {
-			tc := tc
-
-			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
-
-				urlSaverMock := mocks.NewURLSaver(t)
-				urlSaverMock.AssertNotCalled(t, "SaveURL", mock.Anything, mock.Anything)
-
-				handler := save.New(slogdiscard.NewDiscardLogger(), urlSaverMock, 5)
-
-				req, err := http.NewRequest(http.MethodPost, "/save", bytes.NewReader([]byte(tc.input)))
-				require.NoError(t, err)
-
-				rr := httptest.NewRecorder()
-				handler.ServeHTTP(rr, req)
-
-				require.Equal(t, http.StatusBadRequest, rr.Code)
-
-				var resp save.Response
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
-
-				require.Equal(t, "failed to decode request body", resp.Error)
-			})
-		}
-	})
-
-	t.Run("Validation error", func(t *testing.T) {
-		t.Parallel()
-
-		cases := []struct {
-			name        string
-			alias       string
-			url         string
-			aliasLength int
-			respError   string
-		}{
-			{
-				name:        "Empty URL",
-				url:         "",
-				alias:       "some_alias",
-				aliasLength: 5,
-				respError:   "field URL is a required field",
-			},
-			{
-				name:        "Invalid URL",
-				url:         "some invalid URL",
-				alias:       "some_alias",
-				aliasLength: 5,
-				respError:   "field URL is not a valid URL",
-			},
-		}
-
-		for _, tc := range cases {
-			tc := tc
-
-			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
-
-				urlSaverMock := mocks.NewURLSaver(t)
-				urlSaverMock.AssertNotCalled(t, "SaveURL", mock.Anything, mock.Anything)
-
-				handler := save.New(slogdiscard.NewDiscardLogger(), urlSaverMock, tc.aliasLength)
-
-				input := `{"url": "` + tc.url + `", "alias": "` + tc.alias + `"}`
-
-				req, err := http.NewRequest(http.MethodPost, "/save", bytes.NewReader([]byte(input)))
-				require.NoError(t, err)
-
-				rr := httptest.NewRecorder()
-				handler.ServeHTTP(rr, req)
-
-				require.Equal(t, http.StatusBadRequest, rr.Code)
-
-				var resp save.Response
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
-
-				require.Equal(t, tc.respError, resp.Error)
-			})
-		}
-	})
-}
-
-func TestSave_Conflict(t *testing.T) {
-	t.Run("Alias already exists", func(t *testing.T) {
-		t.Parallel()
-
-		urlSaverMock := mocks.NewURLSaver(t)
-		urlSaverMock.On("SaveURL", "https://google.com", "test_alias").
-			Return(int64(0), storage.ErrAliasExists).
+	if tc.wantSaveCalled {
+		urlSaverMock.On("SaveURL", tc.wantURL, mock.AnythingOfType("string")).
+			Return(int64(1), tc.mockError).
 			Once()
+	} else {
+		urlSaverMock.AssertNotCalled(t, "SaveURL", mock.Anything, mock.Anything)
+	}
 
-		handler := save.New(slogdiscard.NewDiscardLogger(), urlSaverMock, 5)
+	handler := save.New(slogdiscard.NewDiscardLogger(), urlSaverMock, tc.aliasLength)
 
-		input := `{"url": "https://google.com", "alias": "test_alias"}`
+	req, err := http.NewRequest(http.MethodPost, "/save", bytes.NewReader([]byte(tc.input)))
+	require.NoError(t, err)
 
-		req, err := http.NewRequest(http.MethodPost, "/save", bytes.NewReader([]byte(input)))
-		require.NoError(t, err)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
 
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
+	require.Equal(t, tc.wantStatus, rr.Code)
 
-		require.Equal(t, http.StatusConflict, rr.Code)
+	var resp save.Response
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
 
-		var resp save.Response
-		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.Equal(t, tc.wantError, resp.Error)
 
-		require.Equal(t, "alias already exists", resp.Error)
+	if tc.wantStatus == http.StatusCreated {
+		if tc.wantAnyAlias {
+			require.NotEmpty(t, resp.Alias)
+		} else {
+			require.Equal(t, tc.wantAlias, resp.Alias)
+		}
+	}
 
-		urlSaverMock.AssertExpectations(t)
-	})
+	urlSaverMock.AssertExpectations(t)
 }
 
-func TestSave_Other(t *testing.T) {
-	cases := []struct {
-		name        string
-		alias       string
-		url         string
-		aliasLength int
-		wantStatus  int
-		respError   string
-		mockError   error
-	}{
+func TestSave(t *testing.T) {
+	cases := []saveTestCase{
 		{
-			name:        "Empty alias with zero aliasLength",
-			alias:       "",
-			url:         "https://google.com",
-			aliasLength: 0,
-			wantStatus:  http.StatusInternalServerError,
-			respError:   "failed to parse ALIAS_LENGTH",
+			name:           "Success",
+			input:          `{"url": "https://google.com", "alias": "test_alias"}`,
+			aliasLength:    5,
+			wantSaveCalled: true,
+			wantURL:        "https://google.com",
+			wantStatus:     http.StatusCreated,
+			wantAlias:      "test_alias",
 		},
 		{
-			name:        "SaveURL Error",
-			alias:       "test_alias",
-			url:         "https://google.com",
+			name:           "Empty alias with generated alias",
+			input:          `{"url": "https://google.com", "alias": ""}`,
+			aliasLength:    5,
+			wantSaveCalled: true,
+			wantURL:        "https://google.com",
+			wantStatus:     http.StatusCreated,
+			wantAnyAlias:   true,
+		},
+		{
+			name:        "Truncated JSON",
+			input:       `{"url": "https://google.com", "alias": "test_alias"`,
 			aliasLength: 5,
 			wantStatus:  http.StatusBadRequest,
-			respError:   "failed to add url",
-			mockError:   errors.New("unexpected error"),
+			wantError:   "failed to decode request body",
+		},
+		{
+			name:        "Not a JSON",
+			input:       `not a json at all`,
+			aliasLength: 5,
+			wantStatus:  http.StatusBadRequest,
+			wantError:   "failed to decode request body",
+		},
+		{
+			name:        "Wrong field type",
+			input:       `{"url": 123, "alias": []}`,
+			aliasLength: 5,
+			wantStatus:  http.StatusBadRequest,
+			wantError:   "failed to decode request body",
+		},
+		{
+			name:        "Empty body",
+			input:       ``,
+			aliasLength: 5,
+			wantStatus:  http.StatusBadRequest,
+			wantError:   "failed to decode request body",
+		},
+		{
+			name:        "Empty URL",
+			input:       `{"url": "", "alias": "some_alias"}`,
+			aliasLength: 5,
+			wantStatus:  http.StatusBadRequest,
+			wantError:   "field URL is a required field",
+		},
+		{
+			name:        "Invalid URL",
+			input:       `{"url": "some invalid URL", "alias": "some_alias"}`,
+			aliasLength: 5,
+			wantStatus:  http.StatusBadRequest,
+			wantError:   "field URL is not a valid URL",
+		},
+		{
+			name:           "Alias already exists",
+			input:          `{"url": "https://google.com", "alias": "test_alias"}`,
+			aliasLength:    5,
+			wantSaveCalled: true,
+			wantURL:        "https://google.com",
+			mockError:      storage.ErrAliasExists,
+			wantStatus:     http.StatusConflict,
+			wantError:      "alias already exists",
+		},
+		{
+			name:           "SaveURL Error",
+			input:          `{"url": "https://google.com", "alias": "test_alias"}`,
+			aliasLength:    5,
+			wantSaveCalled: true,
+			wantURL:        "https://google.com",
+			mockError:      errors.New("unexpected error"),
+			wantStatus:     http.StatusInternalServerError,
+			wantError:      "failed to add url",
 		},
 	}
 
@@ -238,34 +159,7 @@ func TestSave_Other(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			urlSaverMock := mocks.NewURLSaver(t)
-
-			if tc.respError == "failed to parse ALIAS_LENGTH" {
-				urlSaverMock.AssertNotCalled(t, "SaveURL", mock.Anything, mock.Anything)
-			} else {
-				urlSaverMock.On("SaveURL", tc.url, mock.AnythingOfType("string")).
-					Return(int64(1), tc.mockError).
-					Once()
-			}
-
-			handler := save.New(slogdiscard.NewDiscardLogger(), urlSaverMock, tc.aliasLength)
-
-			input := `{"url": "` + tc.url + `", "alias": "` + tc.alias + `"}`
-
-			req, err := http.NewRequest(http.MethodPost, "/save", bytes.NewReader([]byte(input)))
-			require.NoError(t, err)
-
-			rr := httptest.NewRecorder()
-			handler.ServeHTTP(rr, req)
-
-			require.Equal(t, tc.wantStatus, rr.Code)
-
-			var resp save.Response
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
-
-			require.Equal(t, tc.respError, resp.Error)
-
-			urlSaverMock.AssertExpectations(t)
+			runSaveTest(t, tc)
 		})
 	}
 }

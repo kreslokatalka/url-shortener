@@ -2,7 +2,7 @@ package update
 
 import "log/slog"
 
-//go:generate go run github.com/vektra/mockery/v2@latest --dir . --name URLSaver --output ./mocks
+//go:generate go run github.com/vektra/mockery/v2@latest --dir . --name URLUpdater --output ./mocks
 type URLUpdater interface {
 	UpdateURL(newURL, NewAlias, alias string) (int64, error)
 }
@@ -20,6 +20,6 @@ func (s *Service) Update(NewURL, NewAlias, alias string) (int64, error) {
 	if NewAlias == "" {
 		NewAlias = alias
 	}
-
-	return s.urlUpdater.UpdateURL(NewURL, NewAlias, alias)
+	countUpdated, err := s.urlUpdater.UpdateURL(NewURL, NewAlias, alias)
+	return countUpdated, err
 }

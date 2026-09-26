@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"url-shortener/internal/http-server/handlers/url/delete"
@@ -15,36 +16,78 @@ import (
 	"url-shortener/internal/service/delete/mocks"
 )
 
-func TestDeleteHandler(t *testing.T) {
-	cases := []struct {
-		name         string
-		alias        string
-		path         string
-		wantStatus   int
-		countDeleted int64
-		respError    string
-		mockError    error
-	}{
+type deleteTestCase struct {
+	name             string
+	path             string
+	alias            string
+	mockError        error
+	wantDeleteCalled bool
+	countDeleted     int64
+	wantStatus       int
+	wantError        string
+}
+
+func runDeleteTest(t *testing.T, tc deleteTestCase) {
+	t.Helper()
+
+	urlDeleterMock := mocks.NewURLDeleter(t)
+
+	if tc.wantDeleteCalled {
+		urlDeleterMock.On("DeleteURL", tc.alias).
+			Return(tc.countDeleted, tc.mockError).
+			Once()
+	} else {
+		urlDeleterMock.AssertNotCalled(t, "DeleteURL", mock.Anything)
+	}
+
+	r := chi.NewRouter()
+	r.Delete("/{alias}", delete.New(slogdiscard.NewDiscardLogger(), urlDeleterMock))
+
+	req, err := http.NewRequest(http.MethodDelete, tc.path, nil)
+	require.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, tc.wantStatus, rr.Code)
+
+	if tc.wantStatus != http.StatusOK {
+		urlDeleterMock.AssertExpectations(t)
+		return
+	}
+
+	var resp delete.Response
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+
+	require.Equal(t, tc.wantError, resp.Error)
+	require.Equal(t, tc.countDeleted, resp.CountDeleted)
+
+	urlDeleterMock.AssertExpectations(t)
+}
+
+func TestDelete(t *testing.T) {
+	cases := []deleteTestCase{
 		{
-			name:         "Success",
-			alias:        "test_alias",
-			path:         "/test_alias",
-			wantStatus:   http.StatusOK,
-			countDeleted: 1,
+			name:             "Success",
+			path:             "/test_alias",
+			alias:            "test_alias",
+			wantDeleteCalled: true,
+			countDeleted:     1,
+			wantStatus:       http.StatusOK,
 		},
 		{
 			name:       "Empty alias",
-			alias:      "",
 			path:       "/",
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "DeleteURL Error",
-			alias:      "test_alias",
-			path:       "/test_alias",
-			wantStatus: http.StatusBadRequest,
-			respError:  "failed to get url",
-			mockError:  errors.New("unexpected error"),
+			name:             "DeleteURL Error",
+			path:             "/test_alias",
+			alias:            "test_alias",
+			wantDeleteCalled: true,
+			mockError:        errors.New("unexpected error"),
+			wantStatus:       http.StatusInternalServerError,
+			wantError:        "failed to get url",
 		},
 	}
 
@@ -54,40 +97,7 @@ func TestDeleteHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			urlDeleterMock := mocks.NewURLDeleter(t)
-
-			if tc.respError != "" || tc.countDeleted != 0 {
-				urlDeleterMock.On("DeleteURL", tc.alias).
-					Return(tc.countDeleted, tc.mockError).
-					Once()
-			}
-
-			r := chi.NewRouter()
-			r.Delete("/{alias}", delete.New(slogdiscard.NewDiscardLogger(), urlDeleterMock))
-
-			req, err := http.NewRequest(http.MethodDelete, tc.path, nil)
-			require.NoError(t, err)
-
-			rr := httptest.NewRecorder()
-			r.ServeHTTP(rr, req)
-
-			require.Equal(t, tc.wantStatus, rr.Code)
-
-			if tc.wantStatus != http.StatusOK {
-				return
-			}
-
-			var resp delete.Response
-
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
-
-			require.Equal(t, tc.respError, resp.Error)
-
-			if tc.respError == "" {
-				require.Equal(t, tc.countDeleted, resp.CountDeleted)
-			}
-
-			urlDeleterMock.AssertExpectations(t)
+			runDeleteTest(t, tc)
 		})
 	}
 }

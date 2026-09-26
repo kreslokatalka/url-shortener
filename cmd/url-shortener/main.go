@@ -17,6 +17,7 @@ import (
 	"url-shortener/internal/http-server/handlers/url/delete"
 	"url-shortener/internal/http-server/handlers/url/redirect"
 	"url-shortener/internal/http-server/handlers/url/save"
+	"url-shortener/internal/http-server/handlers/url/update"
 	mwLogger "url-shortener/internal/http-server/middleware/logger"
 )
 
@@ -54,6 +55,7 @@ func main() {
 		}))
 		r.Post("/", save.New(log, storage, cfg.AliasLength))
 		r.Delete("/{alias}", delete.New(log, storage))
+		r.Patch("/", update.New(log, storage))
 	})
 
 	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
