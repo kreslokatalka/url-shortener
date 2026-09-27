@@ -8,6 +8,7 @@ import (
 	"url-shortener/internal/storage"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,7 +28,6 @@ func New(storagePath string) (*Storage, error) {
 		alias TEXT NOT NULL UNIQUE,
 		url TEXT NOT NULL
 	);
-	CREATE INDEX IF NOT EXISTS idx_alias ON url(alias);
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", fn, err)
@@ -42,13 +42,20 @@ func (s *Storage) SaveURL(urlToSave, alias string) (int64, error) {
 	err := s.db.QueryRow(
 		context.Background(),
 		`INSERT INTO url(alias, url) VALUES($1, $2)
-		 ON CONFLICT (alias) DO UPDATE SET url = EXCLUDED.url
 		 RETURNING id`,
 		alias,
 		urlToSave,
 	).Scan(&id)
 
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			if pgErr.Code == "23505" {
+
+				return 0, storage.ErrAliasExists
+			}
+		}
+
 		return 0, fmt.Errorf("%s: %w", fn, err)
 	}
 	return id, nil
