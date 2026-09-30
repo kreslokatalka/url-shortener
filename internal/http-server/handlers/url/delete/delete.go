@@ -32,7 +32,7 @@ func New(log *slog.Logger, urlDeleter del.URLDeleter) http.HandlerFunc {
 		)
 
 		alias := chi.URLParam(r, "alias")
-		countDeleted, err := svc.Delete(alias)
+		countDeleted, err := svc.Delete(r.Context(), alias)
 
 		if errors.Is(err, del.ErrAliasEmpty) {
 			log.Info("alias empty")

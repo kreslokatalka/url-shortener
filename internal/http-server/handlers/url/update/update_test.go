@@ -2,12 +2,14 @@ package update_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +17,8 @@ import (
 	"url-shortener/internal/lib/logger/handlers/slogdiscard"
 	"url-shortener/internal/service/update/mocks"
 )
+
+type contextKey struct{}
 
 type updateTestCase struct {
 	name             string
@@ -33,22 +37,26 @@ func runUpdateTest(t *testing.T, tc updateTestCase) {
 	t.Helper()
 
 	urlUpdaterMock := mocks.NewURLUpdater(t)
+	ctx := context.WithValue(context.Background(), contextKey{}, "request")
 
 	if tc.wantUpdateCalled {
-		urlUpdaterMock.On("UpdateURL", tc.wantNewURL, tc.wantNewAlias, tc.wantAlias).
+		urlUpdaterMock.On("UpdateURL", mock.MatchedBy(func(got context.Context) bool {
+			return got.Value(contextKey{}) == "request"
+		}), tc.wantNewURL, tc.wantNewAlias, tc.wantAlias).
 			Return(tc.countUpdated, tc.mockError).
 			Once()
 	} else {
-		urlUpdaterMock.AssertNotCalled(t, "UpdateURL", mock.Anything, mock.Anything, mock.Anything)
+		urlUpdaterMock.AssertNotCalled(t, "UpdateURL", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	}
 
-	handler := update.New(slogdiscard.NewDiscardLogger(), urlUpdaterMock)
+	router := chi.NewRouter()
+	router.Patch("/url/{alias}", update.New(slogdiscard.NewDiscardLogger(), urlUpdaterMock))
 
-	req, err := http.NewRequest(http.MethodPut, "/update", bytes.NewReader([]byte(tc.input)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, "/url/test_alias", bytes.NewReader([]byte(tc.input)))
 	require.NoError(t, err)
 
 	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
+	router.ServeHTTP(rr, req)
 
 	require.Equal(t, tc.wantStatus, rr.Code)
 
@@ -81,7 +89,7 @@ func TestUpdate(t *testing.T) {
 			input:            `{"alias": "test_alias", "newurl": "https://google.com", "newalias": ""}`,
 			wantUpdateCalled: true,
 			wantNewURL:       "https://google.com",
-			wantNewAlias:     "",
+			wantNewAlias:     "test_alias",
 			wantAlias:        "test_alias",
 			countUpdated:     1,
 			wantStatus:       http.StatusOK,

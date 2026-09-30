@@ -1,6 +1,7 @@
 package save
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"url-shortener/internal/lib/random"
@@ -10,7 +11,7 @@ var ErrParseAliasLength = errors.New("failed to parse ALIAS_LENGTH")
 
 //go:generate go run github.com/vektra/mockery/v2@latest --dir . --name URLSaver --output ./mocks
 type URLSaver interface {
-	SaveURL(urlToSave string, alias string) (int64, error)
+	SaveURL(ctx context.Context, urlToSave string, alias string) (int64, error)
 }
 
 type Service struct {
@@ -23,7 +24,7 @@ func NewService(urlSaver URLSaver, logger *slog.Logger, aliasLength int) *Servic
 	return &Service{urlSaver: urlSaver, log: logger, aliasLength: aliasLength}
 }
 
-func (s *Service) Save(urlToSave, alias, ReqID string) (string, error) {
+func (s *Service) Save(ctx context.Context, urlToSave, alias, ReqID string) (string, error) {
 	const fn = "handlers.url.save.New"
 
 	s.log = s.log.With(
@@ -38,7 +39,7 @@ func (s *Service) Save(urlToSave, alias, ReqID string) (string, error) {
 		alias = random.NewRandomString(s.aliasLength)
 	}
 
-	if _, err := s.urlSaver.SaveURL(urlToSave, alias); err != nil {
+	if _, err := s.urlSaver.SaveURL(ctx, urlToSave, alias); err != nil {
 		return "", err
 	}
 

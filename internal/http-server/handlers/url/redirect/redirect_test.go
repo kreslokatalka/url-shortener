@@ -1,6 +1,7 @@
 package redirect_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,8 @@ import (
 	"url-shortener/internal/storage"
 )
 
+type contextKey struct{}
+
 type redirectTestCase struct {
 	name          string
 	alias         string
@@ -30,35 +33,29 @@ func runRedirectTest(t *testing.T, tc redirectTestCase) {
 	t.Helper()
 
 	urlGetterMock := mocks.NewURLGetter(t)
+	ctx := context.WithValue(context.Background(), contextKey{}, "request")
 
 	if tc.wantGetCalled {
-		urlGetterMock.On("GetURL", tc.alias).
+		urlGetterMock.On("GetURL", mock.MatchedBy(func(got context.Context) bool {
+			return got.Value(contextKey{}) == "request"
+		}), tc.alias).
 			Return(tc.url, tc.mockError).
 			Once()
 	} else {
-		urlGetterMock.AssertNotCalled(t, "GetURL", mock.Anything)
+		urlGetterMock.AssertNotCalled(t, "GetURL", mock.Anything, mock.Anything)
 	}
 
 	r := chi.NewRouter()
 	r.Get("/{alias}", redirect.New(slogdiscard.NewDiscardLogger(), urlGetterMock))
 
-	ts := httptest.NewServer(r)
-	defer ts.Close()
+	req := httptest.NewRequest(http.MethodGet, "/"+tc.alias, nil).WithContext(ctx)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
 
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	resp, err := client.Get(ts.URL + "/" + tc.alias)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-
-	require.Equal(t, tc.wantStatus, resp.StatusCode)
+	require.Equal(t, tc.wantStatus, rr.Code)
 
 	if tc.wantStatus == http.StatusFound {
-		require.Equal(t, tc.url, resp.Header.Get("Location"))
+		require.Equal(t, tc.url, rr.Header().Get("Location"))
 	}
 
 	urlGetterMock.AssertExpectations(t)

@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 	"url-shortener/internal/config"
 	"url-shortener/internal/lib/logger/handlers/slogpretty"
 	"url-shortener/internal/lib/logger/sl"
 
-	//storage "url-shortener/internal/storage/sqlite"
 	storage "url-shortener/internal/storage/postgres"
 
 	"github.com/go-chi/chi/v5"
@@ -22,8 +26,9 @@ import (
 )
 
 const (
-	envLocal = "local"
-	envProd  = "prod"
+	envLocal        = "local"
+	envProd         = "prod"
+	shutdownTimeout = 10 * time.Second
 )
 
 func main() {
@@ -40,6 +45,11 @@ func main() {
 		log.Error("failed to init storage", sl.Err(err))
 		os.Exit(1)
 	}
+	defer func() {
+		if err := storage.Close(); err != nil {
+			log.Error("failed to close storage", sl.Err(err))
+		}
+	}()
 
 	router := chi.NewRouter()
 
@@ -55,7 +65,7 @@ func main() {
 		}))
 		r.Post("/", save.New(log, storage, cfg.AliasLength))
 		r.Delete("/{alias}", delete.New(log, storage))
-		r.Patch("/", update.New(log, storage))
+		r.Patch("/{alias}", update.New(log, storage))
 	})
 
 	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
@@ -75,8 +85,33 @@ func main() {
 		IdleTimeout:  cfg.HTTPServer.IdleTimeout,
 	}
 
-	if err := srv.ListenAndServe(); err != nil {
-		log.Error("failed to start server")
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- srv.ListenAndServe()
+	}()
+
+	select {
+	case sig := <-signals:
+		log.Info("shutdown signal received", slog.String("signal", sig.String()))
+	case err := <-serverErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			break
+		}
+		log.Error("failed to start server", sl.Err(err))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Error("graceful server shutdown failed", sl.Err(err))
+		if closeErr := srv.Close(); closeErr != nil {
+			log.Error("failed to close server", sl.Err(closeErr))
+		}
 	}
 
 	log.Info("server stopped")

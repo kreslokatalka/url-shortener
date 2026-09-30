@@ -1,10 +1,13 @@
 package update
 
-import "log/slog"
+import (
+	"context"
+	"log/slog"
+)
 
 //go:generate go run github.com/vektra/mockery/v2@latest --dir . --name URLUpdater --output ./mocks
 type URLUpdater interface {
-	UpdateURL(newURL, NewAlias, alias string) (int64, error)
+	UpdateURL(ctx context.Context, newURL, NewAlias, alias string) (int64, error)
 }
 
 type Service struct {
@@ -16,10 +19,10 @@ func NewService(urlupdater URLUpdater, logger *slog.Logger) *Service {
 	return &Service{urlUpdater: urlupdater, log: logger}
 }
 
-func (s *Service) Update(NewURL, NewAlias, alias string) (int64, error) {
+func (s *Service) Update(ctx context.Context, NewURL, NewAlias, alias string) (int64, error) {
 	if NewAlias == "" {
 		NewAlias = alias
 	}
-	countUpdated, err := s.urlUpdater.UpdateURL(NewURL, NewAlias, alias)
+	countUpdated, err := s.urlUpdater.UpdateURL(ctx, NewURL, NewAlias, alias)
 	return countUpdated, err
 }

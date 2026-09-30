@@ -1,6 +1,7 @@
 package redirect
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -16,7 +17,7 @@ import (
 
 //go:generate go run github.com/vektra/mockery/v2@latest --name URLGetter
 type URLGetter interface {
-	GetURL(alias string) (string, error)
+	GetURL(ctx context.Context, alias string) (string, error)
 }
 
 func New(log *slog.Logger, urlGetter URLGetter) http.HandlerFunc {
@@ -32,7 +33,7 @@ func New(log *slog.Logger, urlGetter URLGetter) http.HandlerFunc {
 
 		alias := chi.URLParam(r, "alias")
 
-		url, err := svc.Get(alias)
+		url, err := svc.Get(r.Context(), alias)
 		if errors.Is(err, storage.ErrURLNotFound) {
 			log.Info("url not found", "alias", alias)
 			render.Status(r, 404)

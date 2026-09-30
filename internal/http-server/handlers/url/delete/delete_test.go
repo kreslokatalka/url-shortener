@@ -1,6 +1,7 @@
 package delete_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"url-shortener/internal/lib/logger/handlers/slogdiscard"
 	"url-shortener/internal/service/delete/mocks"
 )
+
+type contextKey struct{}
 
 type deleteTestCase struct {
 	name             string
@@ -31,19 +34,22 @@ func runDeleteTest(t *testing.T, tc deleteTestCase) {
 	t.Helper()
 
 	urlDeleterMock := mocks.NewURLDeleter(t)
+	ctx := context.WithValue(context.Background(), contextKey{}, "request")
 
 	if tc.wantDeleteCalled {
-		urlDeleterMock.On("DeleteURL", tc.alias).
+		urlDeleterMock.On("DeleteURL", mock.MatchedBy(func(got context.Context) bool {
+			return got.Value(contextKey{}) == "request"
+		}), tc.alias).
 			Return(tc.countDeleted, tc.mockError).
 			Once()
 	} else {
-		urlDeleterMock.AssertNotCalled(t, "DeleteURL", mock.Anything)
+		urlDeleterMock.AssertNotCalled(t, "DeleteURL", mock.Anything, mock.Anything)
 	}
 
 	r := chi.NewRouter()
 	r.Delete("/{alias}", delete.New(slogdiscard.NewDiscardLogger(), urlDeleterMock))
 
-	req, err := http.NewRequest(http.MethodDelete, tc.path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, tc.path, nil)
 	require.NoError(t, err)
 
 	rr := httptest.NewRecorder()

@@ -8,6 +8,7 @@ import (
 	"url-shortener/internal/lib/logger/sl"
 	"url-shortener/internal/service/update"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
 	"github.com/go-playground/validator"
@@ -25,6 +26,7 @@ type Response struct {
 }
 
 func New(log *slog.Logger, updaterURL update.URLUpdater) http.HandlerFunc {
+	svc := update.NewService(updaterURL, log)
 	return func(w http.ResponseWriter, r *http.Request) {
 		const fn = "handlers.url.update.New"
 
@@ -52,10 +54,13 @@ func New(log *slog.Logger, updaterURL update.URLUpdater) http.HandlerFunc {
 			return
 		}
 
-		alias := req.Alias
+		alias := chi.URLParam(r, "alias")
+		if alias == "" {
+			alias = req.Alias
+		}
 		newURL := req.NewURL
 		newAlias := req.NewAlias
-		countUpdated, err := updaterURL.UpdateURL(newURL, newAlias, alias)
+		countUpdated, err := svc.Update(r.Context(), newURL, newAlias, alias)
 
 		if err != nil {
 			log.Error("failed to update url", "alias", alias, sl.Err(err))

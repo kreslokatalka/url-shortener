@@ -2,6 +2,7 @@ package save_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"url-shortener/internal/service/save/mocks"
 	"url-shortener/internal/storage"
 )
+
+type contextKey struct{}
 
 type saveTestCase struct {
 	name           string
@@ -34,18 +37,21 @@ func runSaveTest(t *testing.T, tc saveTestCase) {
 	t.Helper()
 
 	urlSaverMock := mocks.NewURLSaver(t)
+	ctx := context.WithValue(context.Background(), contextKey{}, "request")
 
 	if tc.wantSaveCalled {
-		urlSaverMock.On("SaveURL", tc.wantURL, mock.AnythingOfType("string")).
+		urlSaverMock.On("SaveURL", mock.MatchedBy(func(got context.Context) bool {
+			return got.Value(contextKey{}) == "request"
+		}), tc.wantURL, mock.AnythingOfType("string")).
 			Return(int64(1), tc.mockError).
 			Once()
 	} else {
-		urlSaverMock.AssertNotCalled(t, "SaveURL", mock.Anything, mock.Anything)
+		urlSaverMock.AssertNotCalled(t, "SaveURL", mock.Anything, mock.Anything, mock.Anything)
 	}
 
 	handler := save.New(slogdiscard.NewDiscardLogger(), urlSaverMock, tc.aliasLength)
 
-	req, err := http.NewRequest(http.MethodPost, "/save", bytes.NewReader([]byte(tc.input)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/save", bytes.NewReader([]byte(tc.input)))
 	require.NoError(t, err)
 
 	rr := httptest.NewRecorder()

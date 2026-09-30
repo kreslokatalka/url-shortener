@@ -55,7 +55,7 @@ func New(log *slog.Logger, urlSaver save.URLSaver, aliasLength int) http.Handler
 			render.JSON(w, r, resp.ValidationError(validateErr))
 			return
 		}
-		alias, err := svc.Save(req.URL, req.Alias, middleware.GetReqID(r.Context()))
+		alias, err := svc.Save(r.Context(), req.URL, req.Alias, middleware.GetReqID(r.Context()))
 
 		if errors.Is(err, save.ErrParseAliasLength) {
 			log.Error("failed to parse ALIAS_LENGTH", sl.Err(err))
